@@ -1,0 +1,12 @@
+fastapi
+uvicorn
+supabase
+python-dotenv
+pydantic[email]
+twilio
+python-multipart
+openai
+feedparser
+beautifulsoup4
+langdetect
+requests

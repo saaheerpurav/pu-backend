@@ -8,6 +8,7 @@ Stored in-memory (sufficient for hackathon).
 """
 
 from datetime import datetime, timezone, timedelta
+from app.services.language_utils import infer_language
 from app.services.llm import ask_llm
 
 # In-memory session store: { "whatsapp:+91..." : { state, data, updated_at } }
@@ -116,7 +117,7 @@ def process_message(
 
     # ── No active session — hand off to LLM for general queries ──
     if not session:
-        reply = ask_llm(body)
+        reply = ask_llm(body, language_hint=infer_language(body or ""))
         return reply, None
 
     state = session["state"]
@@ -180,5 +181,5 @@ def process_message(
         return None, report  # Caller will submit report and build reply
 
     # Shouldn't reach here — fallback to LLM
-    reply = ask_llm(body)
+    reply = ask_llm(body, language_hint=infer_language(body or ""))
     return reply, None

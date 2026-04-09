@@ -20,6 +20,7 @@ from twilio.twiml.messaging_response import MessagingResponse
 from dotenv import load_dotenv
 
 from app.supabase_client import supabase_admin
+from app.services.language_utils import infer_language
 from app.services.llm import ask_llm
 from app.services.whatsapp_bot import process_message
 from app.services.report_service import submit_report as _submit_report
@@ -101,6 +102,19 @@ def transcribe_voice_note(media_url: str, media_type: Optional[str]) -> tuple[Op
         media_resp.raise_for_status()
         client = get_openai_client()
         audio_stream = io.BytesIO(media_resp.content)
+        ext = "ogg"
+        detected_type = (media_type or media_resp.headers.get("Content-Type", "")).split(";")[0].strip().lower()
+        if detected_type in ("audio/mp3", "audio/mpeg"):
+            ext = "mp3"
+        elif detected_type in ("audio/wav", "audio/x-wav"):
+            ext = "wav"
+        elif detected_type in ("audio/m4a",):
+            ext = "m4a"
+        elif detected_type in ("audio/webm",):
+            ext = "webm"
+        elif detected_type in ("audio/ogg", "audio/ogv"):
+            ext = "ogg"
+        audio_stream.name = f"voice.{ext}"
         transcript = client.audio.transcriptions.create(
             model="whisper-1",
             file=audio_stream,
@@ -240,10 +254,11 @@ def handle_whatsapp_webhook(
         logger.info("WhatsApp voice transcript for %s: %s", phone, text_body.replace("\n", " "))
 
     Body = Body or text_body
+    language_hint = infer_language(text_body)
     quick_response = None if voice_message else quick_whatsapp_router(phone, text_body, lat, lng)
     if voice_message and not quick_response:
         logger.info("Routing voice transcript to LLM for %s", phone)
-        return twiml_reply(ask_llm(text_body))
+        return twiml_reply(ask_llm(text_body, language_hint=language_hint))
     if quick_response:
         return twiml_reply(quick_response)
 

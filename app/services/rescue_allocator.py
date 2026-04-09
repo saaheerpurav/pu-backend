@@ -5,6 +5,7 @@ Uses pure Python distance (PostGIS would be ideal but this is fine for hackathon
 """
 
 from app.services.clustering import haversine_km
+from app.services.responder_utils import derive_availability
 
 AVG_SPEED_KMPH = 40.0   # emergency vehicle speed assumption
 
@@ -14,8 +15,14 @@ def find_nearest_unit(event_lat: float, event_lng: float, units: list) -> dict |
     best = None
     best_dist = float("inf")
     for unit in units:
-        if unit["status"] != "available":
-            continue
+        status = unit.get("status") or unit.get("current_status")
+        if status:
+            if status.strip().lower() != "available":
+                continue
+        else:
+            availability = derive_availability(unit).lower()
+            if availability != "ready":
+                continue
         dist = haversine_km(event_lat, event_lng, unit["latitude"], unit["longitude"])
         if dist < best_dist:
             best = unit
@@ -32,6 +39,12 @@ def calculate_eta_minutes(distance_km: float) -> int:
 def naive_unit(units: list) -> dict | None:
     """First available unit — simulates non-optimized dispatch."""
     for unit in units:
-        if unit["status"] == "available":
+        status = unit.get("status") or unit.get("current_status")
+        if status:
+            if status.strip().lower() == "available":
+                return unit
+            continue
+        availability = derive_availability(unit).lower()
+        if availability == "ready":
             return unit
     return None

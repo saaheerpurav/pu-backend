@@ -1,38 +1,13 @@
 from fastapi import APIRouter, Depends
-from pydantic import BaseModel, Field
+
+from app.schemas.confidence import (
+    ConfidenceQuery,
+    ConfidenceRequest,
+    ConfidenceResponse,
+)
+from app.services.raccoon_ai import score_confidence_with_raccoon
 
 router = APIRouter(tags=["confidence"])
-
-
-class ConfidenceQuery(BaseModel):
-    app_report_count_30m: int | None = Field(0, alias="app_reports")
-    whatsapp_report_count_30m: int | None = Field(0, alias="whatsapp_reports")
-    news_signal_count_1h: int | None = Field(0, alias="news_reports")
-    social_signal_count_1h: int | None = Field(0, alias="social_reports")
-    source_entropy: float | None = None
-    local_grid_risk_score: float | None = None
-    weather_severity: float | None = None
-    nearby_ready_responders: int | None = None
-    eonet_event_count_24h: int | None = None
-    responders_ready_flag: bool | None = None
-
-
-class ConfidenceRequest(BaseModel):
-    report_counts: dict[str, int] = Field(default_factory=dict)
-    source_entropy: float | None = None
-    local_grid_risk_score: float | None = None
-    weather_severity: float | None = None
-    nearby_ready_responders: int | None = None
-    eonet_event_count_24h: int | None = None
-    responder_toggle: dict[str, bool] | None = None
-
-
-class ConfidenceResponse(BaseModel):
-    model_version: str
-    base_confidence: float
-    confidence: float
-    reasons: list[str]
-    fallback_used: bool
 
 
 def _rule_confidence(payload: ConfidenceRequest) -> tuple[float, list[str]]:
@@ -80,6 +55,17 @@ def _assemble_request(query: ConfidenceQuery) -> ConfidenceRequest:
 @router.get("/ml/confidence/score", response_model=ConfidenceResponse)
 def score_confidence(query: ConfidenceQuery = Depends()):
     payload = _assemble_request(query)
+    raccoon_result = score_confidence_with_raccoon(payload)
+    if raccoon_result:
+        reasons = raccoon_result.get("reasons") or ["Raccoon AI confidence scored this event"]
+        return ConfidenceResponse(
+            model_version="raccoon_lam_v1",
+            base_confidence=round(raccoon_result.get("base_confidence", raccoon_result["confidence"]), 3),
+            confidence=round(raccoon_result["confidence"], 3),
+            reasons=reasons,
+            fallback_used=False,
+        )
+
     base, reasons = _rule_confidence(payload)
     final = base
     penalty_notes: list[str] = []

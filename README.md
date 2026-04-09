@@ -48,6 +48,9 @@ SUPABASE_ANON_KEY=sb_publishable_...
 SUPABASE_SERVICE_KEY=sb_secret_...
 ```
 
+Add `RACOONAI_API_KEY=<your key>` and `RACOONAI_PASSCODE=<your raccoon passcode>` if you plan to use Raccoon AI for the `/ml/confidence/score` endpoint; it will fall back to the built-in rule engine when those values are missing.
+If you want WhatsApp replies to include voice, set `VOICE_TTS_BUCKET` (default: `disaster-media`) so the generated MP3 can be uploaded and shared with Twilio.
+
 ---
 
 ## Run the Server

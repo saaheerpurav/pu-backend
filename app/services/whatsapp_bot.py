@@ -110,7 +110,7 @@ def process_message(
     session = get_session(phone)
 
     # ── Trigger word ──────────────────────────────────────────────
-    if text in ("help", "sos", "emergency", "hi", "hello", "start"):
+    if text in ("help", "sos", "emergency"):
         set_session(phone, "awaiting_location", {})
         return MESSAGES["welcome"], None
 

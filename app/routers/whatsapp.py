@@ -5,6 +5,7 @@ Flow: HELP → location → disaster type → people count → injuries → repo
 Broadcast: when confidence ≥ 60, alert ALL citizens stored in `users`
 """
 
+import logging
 import os
 import threading
 from typing import Optional
@@ -17,6 +18,7 @@ from twilio.twiml.messaging_response import MessagingResponse
 from dotenv import load_dotenv
 
 from app.supabase_client import supabase_admin
+from app.services.llm import ask_llm
 from app.services.whatsapp_bot import process_message
 from app.services.report_service import submit_report as _submit_report
 from app.services.health_ai import generate_health_advice
@@ -43,13 +45,13 @@ CONFIDENCE_BROADCAST_THRESHOLD = 60.0
 ELEVENLABS_API_KEY = os.getenv("ELEVENLABS_API_KEY")
 ELEVENLABS_STT_MODEL = os.getenv("ELEVENLABS_STT_MODEL", "scribe_v2")
 ELEVENLABS_STT_URL = "https://api.elevenlabs.io/v1/speech-to-text"
-
+logger = logging.getLogger("resqnet.whatsapp")
 router = APIRouter(prefix="/whatsapp", tags=["whatsapp"])
 
 
 def twiml_reply(message: str) -> Response:
     resp = MessagingResponse()
-    resp.message(message)
+    msg = resp.message(message)
     return Response(content=str(resp), media_type="application/xml")
 
 
@@ -193,26 +195,6 @@ def quick_whatsapp_router(phone: str, body: str, latitude: float | None, longitu
     if not text:
         return None
 
-    if any(keyword in text for keyword in ("help", "emergency", "sos")):
-        user = find_user_by_phone(phone)
-        result = create_sos_incident(
-            user_id=user.get("id") if user else None,
-            incident_type="disaster",
-            latitude=latitude,
-            longitude=longitude,
-            source="whatsapp",
-        )
-        responder = result.get("responder") or {}
-        response = (
-            f"🚨 SOS triggered.\n"
-            f"Incident ID: {result['incident_id'][:8]}\n"
-            f"Status: {result['status']}\n"
-            f"Responder: {responder.get('type', 'team')}\n"
-            f"ETA: {responder.get('eta', 'pending')}"
-        )
-        log_chatbot_exchange(body, response)
-        return response
-
     if any(keyword in text for keyword in ("pain", "injury", "bleeding", "cut", "burn", "fever", "wound", "cough", "vomit", "chest", "breath", "blood")):
         advice = generate_health_advice(body)
         response = (
@@ -251,7 +233,9 @@ def handle_whatsapp_webhook(
 
     text_body = Body or ""
     num_media = int(NumMedia or "0")
-    if not text_body and num_media > 0 and MediaUrl0:
+    media_type = (MediaContentType0 or "").lower()
+    voice_message = bool(MediaUrl0) and "audio" in media_type
+    if voice_message:
         transcribed, _language = transcribe_voice_note(MediaUrl0, MediaContentType0)
         if transcribed:
             text_body = transcribed
@@ -261,8 +245,13 @@ def handle_whatsapp_webhook(
                 "⚠️ We received your audio but couldn't transcribe it. "
                 "Please type a brief description or send HELP."
             )
+        logger.info("WhatsApp voice transcript for %s: %s", phone, text_body.replace("\n", " "))
 
-    quick_response = quick_whatsapp_router(phone, text_body, lat, lng)
+    Body = Body or text_body
+    quick_response = None if voice_message else quick_whatsapp_router(phone, text_body, lat, lng)
+    if voice_message and not quick_response:
+        logger.info("Routing voice transcript to LLM for %s", phone)
+        return twiml_reply(ask_llm(text_body))
     if quick_response:
         return twiml_reply(quick_response)
 
@@ -286,15 +275,16 @@ def handle_whatsapp_webhook(
                 people_count=completed_report.get("people_count", 1),
                 injuries=completed_report.get("injuries", False),
             )
-            report_id = result["report_id"] or "unknown"
-            event_id = result["event_id"]
-            confidence = result["confidence"]
         except Exception as e:
             print(f"[WhatsApp] Report submission failed: {e}")
             return twiml_reply(
                 "⚠️ We had trouble saving your report. "
                 "Please call emergency services if in immediate danger.\n\n*Dial 112*"
             )
+
+        report_id = result.get("report_id") or "unknown"
+        event_id = result.get("event_id")
+        confidence = result.get("confidence", 0)
 
         # ── Confirmation to reporting user ────────────────────────
         injuries_note = "🚑 Injuries flagged — priority response activated." if completed_report.get("injuries") else ""

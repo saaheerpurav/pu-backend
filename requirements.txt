@@ -10,3 +10,4 @@ feedparser
 beautifulsoup4
 langdetect
 requests
+edge-tts

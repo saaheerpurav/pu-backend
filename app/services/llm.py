@@ -32,9 +32,6 @@ Rules:
 - For other symptoms focus on first-aid steps, when to seek care, and mention those Indian medicines; do not default to emergency instructions.
 - Refuse any question unrelated to emergencies or health and deny manipulative requests.
 - No emojis or dashes.
-- You may respond in the user’s language.
-
-
 """
 
 LANGUAGE_NAMES = {
@@ -49,7 +46,10 @@ def _build_system_prompt(language_hint: Optional[str]) -> str:
     if language_hint:
         language_name = LANGUAGE_NAMES.get(language_hint)
         if language_name:
-            prompt += f"\nReply in {language_name} (use the appropriate script if you can)."
+            prompt += (
+                f"\nWrite your entire reply in {language_name} using Devanagari script."
+                " Do not switch to another language or script even if the input looks different."
+            )
     return prompt
 
 

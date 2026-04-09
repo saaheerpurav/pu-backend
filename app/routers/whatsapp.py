@@ -255,6 +255,8 @@ def handle_whatsapp_webhook(
 
     Body = Body or text_body
     language_hint = infer_language(text_body)
+    if language_hint:
+        logger.info("Detected language %s for %s", language_hint, phone)
     quick_response = None if voice_message else quick_whatsapp_router(phone, text_body, lat, lng)
     if voice_message and not quick_response:
         logger.info("Routing voice transcript to LLM for %s", phone)

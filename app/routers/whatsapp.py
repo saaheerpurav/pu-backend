@@ -5,6 +5,7 @@ Flow: HELP → location → disaster type → people count → injuries → repo
 Broadcast: when confidence ≥ 60, alert ALL citizens stored in `users`
 """
 
+import io
 import logging
 import os
 import threading
@@ -12,6 +13,7 @@ from typing import Optional
 
 import requests
 from fastapi import APIRouter, Form, Request, Response
+from openai import OpenAI
 from pydantic import BaseModel
 from twilio.rest import Client
 from twilio.twiml.messaging_response import MessagingResponse
@@ -42,11 +44,16 @@ TWILIO_AUTH_TOKEN = os.getenv("TWILIO_AUTH_TOKEN")
 TWILIO_WHATSAPP_NUMBER = os.getenv("TWILIO_WHATSAPP_NUMBER")
 
 CONFIDENCE_BROADCAST_THRESHOLD = 60.0
-ELEVENLABS_API_KEY = os.getenv("ELEVENLABS_API_KEY")
-ELEVENLABS_STT_MODEL = os.getenv("ELEVENLABS_STT_MODEL", "scribe_v2")
-ELEVENLABS_STT_URL = "https://api.elevenlabs.io/v1/speech-to-text"
+_openai_client: OpenAI | None = None
 logger = logging.getLogger("resqnet.whatsapp")
 router = APIRouter(prefix="/whatsapp", tags=["whatsapp"])
+
+
+def get_openai_client() -> OpenAI:
+    global _openai_client
+    if _openai_client is None:
+        _openai_client = OpenAI(api_key=os.getenv("OPENAI_API_KEY"))
+    return _openai_client
 
 
 def twiml_reply(message: str) -> Response:
@@ -82,7 +89,7 @@ def log_chatbot_exchange(message: str, response: str):
 
 
 def transcribe_voice_note(media_url: str, media_type: Optional[str]) -> tuple[Optional[str], Optional[str]]:
-    if not media_url or not ELEVENLABS_API_KEY:
+    if not media_url:
         return None, None
 
     try:
@@ -92,29 +99,15 @@ def transcribe_voice_note(media_url: str, media_type: Optional[str]) -> tuple[Op
             timeout=15,
         )
         media_resp.raise_for_status()
-
-        files = {
-            "file": (
-                "voice",
-                media_resp.content,
-                media_type or "audio/ogg",
-            ),
-        }
-        data = {"model_id": ELEVENLABS_STT_MODEL}
-        headers = {"xi-api-key": ELEVENLABS_API_KEY}
-
-        stt_resp = requests.post(
-            ELEVENLABS_STT_URL,
-            headers=headers,
-            files=files,
-            data=data,
-            timeout=30,
+        client = get_openai_client()
+        audio_stream = io.BytesIO(media_resp.content)
+        transcript = client.audio.transcriptions.create(
+            model="whisper-1",
+            file=audio_stream,
         )
-        stt_resp.raise_for_status()
-        payload = stt_resp.json()
-        return payload.get("text"), payload.get("language_code")
+        return transcript.text, getattr(transcript, "language", None)
     except Exception as exc:
-        print(f"[WhatsApp] ElevenLabs STT error: {exc}")
+        logger.warning("WhatsApp STT error: %s", exc)
         return None, None
 
 
@@ -241,10 +234,9 @@ def handle_whatsapp_webhook(
             text_body = transcribed
             Body = transcribed
         else:
-            return twiml_reply(
-                "⚠️ We received your audio but couldn't transcribe it. "
-                "Please type a brief description or send HELP."
-            )
+            logger.warning("Failed to transcribe WhatsApp voice note for %s", phone)
+            text_body = "voice note"
+            Body = text_body
         logger.info("WhatsApp voice transcript for %s: %s", phone, text_body.replace("\n", " "))
 
     Body = Body or text_body

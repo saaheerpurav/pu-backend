@@ -8,10 +8,7 @@ VOICES = {
     "en-IN": "en-IN-NeerjaNeural",
     "hi-IN": "hi-IN-SwaraNeural",
     "kn-IN": "kn-IN-SapnaNeural",
-    "ta-IN": "ta-IN-PallaviNeural",
     "te-IN": "te-IN-ShrutiNeural",
-    "mr-IN": "mr-IN-AarohiNeural",
-    "bn-IN": "bn-IN-TanishaaNeural",
 }
 DEFAULT_VOICE = "en-IN-NeerjaNeural"
 
@@ -21,12 +18,8 @@ def detect_lang(text: str) -> str:
         return "hi-IN"
     if re.search(r"[\u0C80-\u0CFF]", text):
         return "kn-IN"
-    if re.search(r"[\u0B80-\u0BFF]", text):
-        return "ta-IN"
     if re.search(r"[\u0C00-\u0C7F]", text):
         return "te-IN"
-    if re.search(r"[\u0980-\u09FF]", text):
-        return "bn-IN"
     return "en-IN"
 
 
